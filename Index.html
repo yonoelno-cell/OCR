@@ -6,9 +6,11 @@
   <title>Gestor BCP · OCR Automático Corregido</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preload" href="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" as="script">
+  <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" as="script">
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
   <style>
     :root {
       --bg-base: #111318; --bg-card: #1A1D24; --bg-elevated: #22252E;
@@ -17,21 +19,25 @@
       --blue-bright: #3B82F6; --green: #10B981; --red: #EF4444;
       --yellow: #F59E0B; --purple: #8B5CF6; --orange: #FF9F1C;
       --radius-sm: 10px; --radius-md: 16px; --radius-lg: 21px; --radius-full: 999px;
+      --will-change-transform: transform;
     }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body {
       background: var(--bg-base); font-family: 'Inter', system-ui, sans-serif;
       color: var(--text-primary); display: flex; justify-content: center;
       min-height: 100vh; padding: 0; font-size: 0.9rem;
+      content-visibility: auto; contain-intrinsic-size: 0 100vh;
     }
     .app-container {
       width: 100%; max-width: 430px; display: flex; flex-direction: column;
       gap: 0.9rem; padding: 0.7rem 0.9rem 5rem; position: relative;
+      will-change: scroll-position; contain: layout style;
     }
     .header {
       display: flex; align-items: center; justify-content: space-between;
       background: var(--bg-card); border-radius: var(--radius-lg);
       padding: 0.7rem 0.9rem; border: 1px solid var(--border);
+      will-change: transform;
     }
     .logo-area { display: flex; align-items: center; gap: 0.6rem; }
     .logo-box {
@@ -49,6 +55,7 @@
       background: var(--bg-card); border-radius: var(--radius-lg);
       padding: 1rem; border: 1px solid var(--border);
       display: flex; flex-direction: column; gap: 0.8rem;
+      contain: layout style;
     }
     .card-header {
       font-weight: 700; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.4px;
@@ -58,9 +65,9 @@
       background: var(--bg-elevated); border: 1px solid var(--border);
       border-radius: var(--radius-md); padding: 1rem 0.9rem; text-align: center;
       cursor: pointer; display: flex; flex-direction: column; align-items: center;
-      gap: 0.3rem; transition: 0.2s;
+      gap: 0.3rem; transition: background 0.2s ease; will-change: transform;
     }
-    .big-btn:active { background: #2a2d35; }
+    .big-btn:active { background: #2a2d35; transform: scale(0.98); }
     .big-btn .btn-icon { font-size: 1.8rem; }
     .big-btn .btn-title { font-weight: 700; font-size: 0.8rem; }
     .big-btn .btn-sub { font-size: 0.6rem; color: var(--text-muted); }
@@ -108,8 +115,9 @@
       width: 100%; background: var(--bg-input); border: none;
       color: var(--text-primary); padding: 0.9rem; min-height: 90px;
       resize: vertical; font-family: inherit; font-size: 0.8rem;
+      contain: layout;
     }
-    .data-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
+    .data-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; will-change: transform; }
     .data-item {
       background: var(--bg-elevated); border-radius: var(--radius-sm);
       padding: 0.6rem; border: 1px solid var(--border);
@@ -147,7 +155,9 @@
       border: none; border-radius: var(--radius-md); padding: 0.9rem;
       font-weight: 800; font-size: 0.9rem; color: #111318;
       cursor: pointer; letter-spacing: 0.3px;
+      will-change: transform; transition: transform 0.15s ease;
     }
+    .btn-confirm:active { transform: scale(0.97); }
     .toast {
       position: fixed; top: 1.3rem; left: 50%; transform: translateX(-50%);
       background: var(--bg-elevated); border: 1px solid var(--green);
@@ -363,7 +373,7 @@
       console.log('🚀 Iniciando Gestor BCP...');
       
       // ============ CONFIGURACIÓN ============
-      const MAX_DIM = 1200, MAX_DIM_TALL = 900, TIMEOUT_SEC = 30, JPEG_QUALITY = 0.9;
+      const MAX_DIM = 1200, MAX_DIM_TALL = 900, TIMEOUT_SEC = 30, JPEG_QUALITY = 0.85;
       const BANCOS = {
         'bcp': 'BCP', 'banco de credito': 'BCP', 'banco de crédito': 'BCP',
         'interbank': 'Interbank', 'bbva': 'BBVA', 'continental': 'BBVA',
@@ -382,6 +392,9 @@
         'nov':'11','dic':'12'
       };
       const MESES_REGEX = '(' + Object.keys(MESES_MAP).join('|') + ')';
+      
+      // Cache para evitar recrear objetos
+      let canvasCache = null;
 
       // ============ DOM ============
       const $ = (id) => document.getElementById(id);
@@ -459,7 +472,10 @@
 
       function removeImage() {
         currentImageFile = null;
-        if (currentImageUrl) URL.revokeObjectURL(currentImageUrl);
+        if (currentImageUrl) {
+          URL.revokeObjectURL(currentImageUrl);
+          currentImageUrl = null;
+        }
         previewImage.src = '';
         previewBox.classList.remove('visible');
         imgActions.classList.remove('visible');
@@ -480,28 +496,49 @@
           const s = MAX_DIM / Math.max(width, height);
           width = Math.round(width * s); height = Math.round(height * s);
         }
-        const canvas = document.createElement('canvas');
-        canvas.width = width; canvas.height = height;
-        const ctx = canvas.getContext('2d', { alpha: false });
+        
+        // Reutilizar canvas si existe
+        if (!canvasCache || canvasCache.width !== width || canvasCache.height !== height) {
+          canvasCache = document.createElement('canvas');
+          canvasCache.width = width;
+          canvasCache.height = height;
+        } else {
+          const ctx = canvasCache.getContext('2d', { alpha: false });
+          ctx.clearRect(0, 0, width, height);
+        }
+        
+        const ctx = canvasCache.getContext('2d', { alpha: false });
         ctx.filter = 'contrast(1.3) brightness(1.15) saturate(0)';
         ctx.drawImage(bitmap, 0, 0, width, height);
-        ctx.filter = 'none'; bitmap.close();
-        return new Promise(res => canvas.toBlob(res, 'image/jpeg', JPEG_QUALITY));
+        ctx.filter = 'none';
+        bitmap.close();
+        
+        return new Promise(res => canvasCache.toBlob(res, 'image/jpeg', JPEG_QUALITY));
       }
 
       async function getWorker() {
         if (worker) return worker;
         console.log('🔧 Inicializando Tesseract worker...');
         scanningText.textContent = 'Cargando motor OCR...';
-        worker = await Tesseract.createWorker('spa+eng', 1, {
+        
+        // Crear worker con configuración optimizada
+        worker = await Tesseract.createWorker({
           logger: m => {
             if (m.status === 'recognizing text') scanningText.textContent = 'Reconociendo texto...';
-          }
+          },
+          cacheMethod: 'memory'
         });
-        await worker.setParameters({
-          tessedit_pageseg_mode: '6', tessjs_create_hocr: '0', tessjs_create_tsv: '0',
-          tessjs_create_box: '0', load_system_dawg: '0', load_freq_dawg: '0'
+        
+        await worker.loadLanguage('spa+eng');
+        await worker.initialize('spa+eng', {
+          tessedit_pageseg_mode: '6',
+          tessjs_create_hocr: '0',
+          tessjs_create_tsv: '0',
+          tessjs_create_box: '0',
+          load_system_dawg: '0',
+          load_freq_dawg: '0'
         });
+        
         console.log('✅ Worker listo');
         return worker;
       }
@@ -881,8 +918,17 @@
         showToast('⚙️ Configuración guardada');
       });
 
-      // Precarga del worker (opcional)
-      getWorker().then(() => console.log('Worker precargado')).catch(e => console.warn('Precarga fallida:', e));
+      // Precarga del worker en segundo plano (no bloqueante)
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(() => {
+          getWorker().then(() => console.log('Worker precargado en idle')).catch(e => console.warn('Precarga fallida:', e));
+        }, { timeout: 2000 });
+      } else {
+        setTimeout(() => {
+          getWorker().then(() => console.log('Worker precargado')).catch(e => console.warn('Precarga fallida:', e));
+        }, 500);
+      }
+      
       loadHistory();
       console.log('✅ Sistema listo');
     })();
