@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Gestor BCP · OCR Automático Corregido</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --bg-base: #111318; --bg-card: #1A1D24; --bg-elevated: #22252E;
+      --bg-input: #252830; --border: #2A2D35; --text-primary: #F1F5F9;
+      --text-secondary: #CBD5E1; --text-muted: #64748B;
+      --blue-bright: #3B82F6; --green: #10B981; --red: #EF4444;
+      --yellow: #F59E0B; --purple: #8B5CF6; --orange: #FF9F1C;
+      --radius-sm: 10px; --radius-md: 16px; --radius-lg: 21px; --radius-full: 999px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg-base); font-family: 'Inter', system-ui, sans-serif;
+      color: var(--text-primary); display: flex; justify-content: center;
+      min-height: 100vh; padding: 0; font-size: 0.9rem;
+    }
+    .app-container {
+      width: 100%; max-width: 430px; display: flex; flex-direction: column;
+      gap: 0.9rem; padding: 0.7rem 0.9rem 5rem; position: relative;
+    }
+    .header {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--bg-card); border-radius: var(--radius-lg);
+      padding: 0.7rem 0.9rem; border: 1px solid var(--border);
+    }
+    .logo-area { display: flex; align-items: center; gap: 0.6rem; }
+    .logo-box {
+      width: 2.3rem; height: 2.3rem;
+      background: linear-gradient(135deg, #FF9F1C, #FF6B35);
+      border-radius: var(--radius-sm); display: flex; align-items: center;
+      justify-content: center; font-weight: 800; font-size: 1rem; color: #111318;
+    }
+    .config-btn {
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      border-radius: 50%; width: 2rem; height: 2rem; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; font-size: 1rem;
+    }
+    .card {
+      background: var(--bg-card); border-radius: var(--radius-lg);
+      padding: 1rem; border: 1px solid var(--border);
+      display: flex; flex-direction: column; gap: 0.8rem;
+    }
+    .card-header {
+      font-weight: 700; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    .big-btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+    .big-btn {
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      border-radius: var(--radius-md); padding: 1rem 0.9rem; text-align: center;
+      cursor: pointer; display: flex; flex-direction: column; align-items: center;
+      gap: 0.3rem; transition: 0.2s;
+    }
+    .big-btn:active { background: #2a2d35; }
+    .big-btn .btn-icon { font-size: 1.8rem; }
+    .big-btn .btn-title { font-weight: 700; font-size: 0.8rem; }
+    .big-btn .btn-sub { font-size: 0.6rem; color: var(--text-muted); }
+    /* Ocultar inputs reales */
+    .hidden-input { position: absolute; opacity: 0; pointer-events: none; width: 0; height: 0; }
+    .preview-box {
+      background: #000; border-radius: var(--radius-md); aspect-ratio: 16/12;
+      display: none; align-items: center; justify-content: center;
+      overflow: hidden; position: relative; border: 1px solid var(--border);
+    }
+    .preview-box.visible { display: flex; }
+    .preview-box img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .scanning-overlay {
+      position: absolute; inset: 0; background: rgba(0,0,0,0.85);
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column; gap: 0.6rem; color: white;
+      font-weight: 600; z-index: 5; font-size: 0.8rem;
+    }
+    .scanning-overlay.active { display: flex; }
+    .spinner {
+      width: 2.2rem; height: 2.2rem;
+      border: 2.5px solid rgba(255,255,255,0.3);
+      border-top-color: var(--blue-bright);
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .img-actions { display: none; gap: 0.4rem; }
+    .img-actions.visible { display: flex; }
+    .img-action-btn {
+      flex: 1; background: var(--bg-elevated); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 0.5rem; text-align: center;
+      cursor: pointer; font-size: 0.7rem; font-weight: 600;
+    }
+    .accordion {
+      border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden;
+    }
+    .accordion-header {
+      padding: 0.8rem 0.9rem; background: var(--bg-elevated);
+      cursor: pointer; font-weight: 600; font-size: 0.75rem;
+      display: flex; justify-content: space-between;
+    }
+    .accordion-body { max-height: 0; overflow: hidden; transition: max-height 0.3s; }
+    .accordion-body.open { max-height: 250px; }
+    .accordion-body textarea {
+      width: 100%; background: var(--bg-input); border: none;
+      color: var(--text-primary); padding: 0.9rem; min-height: 90px;
+      resize: vertical; font-family: inherit; font-size: 0.8rem;
+    }
+    .data-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
+    .data-item {
+      background: var(--bg-elevated); border-radius: var(--radius-sm);
+      padding: 0.6rem; border: 1px solid var(--border);
+    }
+    .data-label { font-size: 0.58rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.2rem; }
+    .data-value { font-weight: 700; font-size: 0.8rem; }
+    .chips-row { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+    .chip {
+      padding: 0.45rem 0.8rem; border-radius: var(--radius-full);
+      border: 1px solid var(--border); background: var(--bg-elevated);
+      font-size: 0.68rem; font-weight: 600; cursor: pointer;
+    }
+    .chip.active { background: var(--blue-bright); border-color: var(--blue-bright); color: white; }
+    .two-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+    .col-card {
+      background: var(--bg-elevated); border-radius: var(--radius-md);
+      padding: 0.8rem; border: 1px solid var(--border);
+    }
+    .col-title {
+      font-weight: 700; font-size: 0.63rem; color: var(--text-muted);
+      text-transform: uppercase; margin-bottom: 0.5rem;
+    }
+    .input-sm {
+      width: 100%; background: var(--bg-input); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 0.45rem 0.6rem;
+      color: var(--text-primary); font-size: 0.7rem; margin-bottom: 0.35rem;
+    }
+    .btn-search {
+      width: 100%; background: var(--blue-bright); border: none;
+      border-radius: var(--radius-sm); padding: 0.45rem;
+      color: white; font-weight: 700; cursor: pointer; font-size: 0.7rem; margin-bottom: 0.35rem;
+    }
+    .btn-confirm {
+      width: 100%; background: linear-gradient(135deg, #FF9F1C, #FF6B35);
+      border: none; border-radius: var(--radius-md); padding: 0.9rem;
+      font-weight: 800; font-size: 0.9rem; color: #111318;
+      cursor: pointer; letter-spacing: 0.3px;
+    }
+    .toast {
+      position: fixed; top: 1.3rem; left: 50%; transform: translateX(-50%);
+      background: var(--bg-elevated); border: 1px solid var(--green);
+      color: var(--green); padding: 0.6rem 1.3rem; border-radius: var(--radius-full);
+      font-weight: 600; font-size: 0.75rem; opacity: 0; pointer-events: none;
+      transition: opacity 0.3s; z-index: 200;
+    }
+    .toast.show { opacity: 1; }
+    .hidden { display: none !important; }
+    .badge {
+      padding: 0.2rem 0.6rem; border-radius: var(--radius-full);
+      font-size: 0.6rem; font-weight: 700;
+    }
+    .badge-green { background: rgba(16,185,129,0.12); color: var(--green); }
+    .badge-yellow { background: rgba(245,158,11,0.12); color: var(--yellow); }
+    .badge-purple { background: rgba(139,92,246,0.12); color: var(--purple); }
+    .badge-red { background: rgba(239,68,68,0.12); color: var(--red); }
+    .badge-blue { background: rgba(59,130,246,0.15); color: var(--blue-bright); }
+    .bottom-nav {
+      position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+      width: 100%; max-width: 430px; background: var(--bg-card);
+      border-top: 1px solid var(--border); display: flex;
+      justify-content: space-around; padding: 0.4rem 0.2rem; z-index: 50;
+      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    }
+    .nav-item { display: flex; flex-direction: column; align-items: center; color: var(--text-muted); font-size: 0.58rem; cursor: pointer; font-weight: 500; }
+    .nav-item.active { color: var(--blue-bright); }
+    .nav-icon { font-size: 1.1rem; }
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.8);
+      z-index: 100; display: flex; align-items: center; justify-content: center; padding: 0.9rem;
+    }
+    .modal-content {
+      background: var(--bg-card); border-radius: var(--radius-lg);
+      padding: 1.3rem; width: 100%; max-width: 400px;
+      border: 1px solid var(--border); max-height: 70vh; overflow-y: auto;
+    }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 1rem; margin-bottom: 0.9rem; }
+    .modal-close {
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      border-radius: 50%; width: 1.8rem; height: 1.8rem; cursor: pointer;
+      color: var(--text-primary); font-size: 0.9rem;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .boleta-text {
+      background: var(--bg-input); padding: 0.8rem; border-radius: var(--radius-sm);
+      font-family: monospace; font-size: 0.8rem; white-space: pre-wrap;
+      border: 1px solid var(--border); margin: 0.5rem 0;
+    }
+    .classification-detail {
+      background: var(--bg-elevated); border-radius: var(--radius-sm);
+      padding: 0.6rem; margin-top: 0.4rem; font-size: 0.65rem;
+      border: 1px solid var(--border);
+    }
+    .classification-detail .rule-item {
+      display: flex; justify-content: space-between; padding: 0.2rem 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .classification-detail .rule-item:last-child { border-bottom: none; }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <div class="header">
+      <div class="logo-area">
+        <div class="logo-box">BCP</div>
+        <span style="font-weight:700;">Gestor BCP</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.5rem;">
+        <span style="font-size:0.7rem;color:var(--text-muted);">v3.2</span>
+        <button class="config-btn" id="configBtn" title="Configuración Telegram">⚙️</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">📸 ESCANEAR COMPROBANTE</div>
+      <div class="big-btn-row">
+        <!-- Usamos label para garantizar la apertura del input en cualquier dispositivo -->
+        <label for="cameraInput" class="big-btn" id="btnCameraLabel">
+          <span class="btn-icon">📷</span>
+          <span class="btn-title">Cámara</span>
+          <span class="btn-sub">Tomar foto</span>
+        </label>
+        <label for="fileInput" class="big-btn" id="btnGalleryLabel">
+          <span class="btn-icon">🖼️</span>
+          <span class="btn-title">Galería</span>
+          <span class="btn-sub">Seleccionar imagen</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="preview-box" id="previewBox">
+      <img id="previewImage" src="" alt="Preview" />
+      <span style="position:absolute;top:0.5rem;left:0.5rem;background:rgba(16,185,129,0.12);color:var(--green);padding:0.2rem 0.6rem;border-radius:20px;font-size:0.6rem;font-weight:700;display:none;" id="optimizedTag">OPTIMIZADO</span>
+      <div class="scanning-overlay" id="scanningOverlay">
+        <div class="spinner"></div>
+        <span id="scanningText">Procesando...</span>
+      </div>
+    </div>
+
+    <div class="img-actions" id="imgActions">
+      <button class="img-action-btn" id="btnChange" onclick="document.getElementById('fileInput').click()">📷 Cambiar</button>
+      <button class="img-action-btn" id="btnRemove">🗑 Quitar</button>
+    </div>
+
+    <div class="accordion" id="accordionPaste">
+      <div class="accordion-header" id="accordionHeader">
+        📋 Texto del comprobante <span>▼</span>
+      </div>
+      <div class="accordion-body" id="accordionBody">
+        <textarea id="pasteTextarea" placeholder="Aquí aparecerá el texto escaneado..."></textarea>
+        <button class="btn-search" id="btnParseText" style="margin-top:0.4rem;">🔍 Reanalizar texto</button>
+      </div>
+    </div>
+
+    <div class="card hidden" id="detectedDataCard">
+      <div class="card-header">📋 Datos detectados <span class="badge badge-green" id="detectionBadge">AUTO</span></div>
+      <div class="data-grid" id="dataGrid"></div>
+    </div>
+
+    <div class="card hidden" id="classificationCard">
+      <div class="card-header">
+        🏷️ Clasificación 
+        <span id="categoryBadge" class="badge badge-yellow">PENDIENTE</span>
+      </div>
+      <div class="data-grid" id="classGrid"></div>
+      <div class="classification-detail" id="classDetail"></div>
+    </div>
+
+    <div class="chips-row" id="typeChips">
+      <span class="chip active" data-type="auto">✨ Auto</span>
+      <span class="chip" data-type="deposito">📥 Depósito</span>
+      <span class="chip" data-type="retiro">📤 Retiro</span>
+      <span class="chip" data-type="servicio">🧾 Servicio</span>
+    </div>
+
+    <div class="chips-row" id="tagChips">
+      <span class="chip active" data-tag="pendiente">🟡 Pendiente</span>
+      <span class="chip" data-tag="pagado">🟢 Pagado</span>
+      <span class="chip" data-tag="urgente">🔴 Urgente</span>
+    </div>
+
+    <div class="two-cols">
+      <div class="col-card">
+        <div class="col-title">👤 EMISOR</div>
+        <input class="input-sm" id="emisorNombre" placeholder="Nombre" />
+        <input class="input-sm" id="emisorDni" placeholder="DNI" />
+        <input class="input-sm" id="emisorBanco" placeholder="Banco" />
+        <input class="input-sm" id="emisorCuenta" placeholder="Cuenta" />
+      </div>
+      <div class="col-card">
+        <div class="col-title">👤 RECEPTOR</div>
+        <input class="input-sm" id="receptorNombre" placeholder="Nombre" />
+        <input class="input-sm" id="receptorDni" placeholder="DNI" />
+        <input class="input-sm" id="receptorBanco" placeholder="Banco" />
+        <input class="input-sm" id="receptorCuenta" placeholder="Cuenta" />
+      </div>
+    </div>
+
+    <button class="btn-confirm" id="btnConfirm">✅ Confirmar y enviar a Telegram</button>
+
+    <div class="toast" id="toast"></div>
+
+    <!-- Inputs ocultos (pero funcionales con label) -->
+    <input type="file" id="fileInput" accept="image/*" class="hidden-input" />
+    <input type="file" id="cameraInput" accept="image/*" capture="environment" class="hidden-input" />
+
+    <!-- Modal de confirmación -->
+    <div class="modal-overlay hidden" id="confirmModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <span>📋 Boleta generada</span>
+          <button class="modal-close" id="closeConfirmModal">✕</button>
+        </div>
+        <div class="boleta-text" id="boletaTexto"></div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.8rem;">
+          <button id="copyBoletaBtn" class="btn-search" style="flex:1;">📋 Copiar</button>
+          <button id="sendTelegramBtn" class="btn-search" style="flex:1;background:var(--blue-bright);">📤 Enviar a Telegram</button>
+        </div>
+        <div id="telegramStatus" style="font-size:0.7rem;margin-top:0.5rem;color:var(--text-muted);"></div>
+      </div>
+    </div>
+
+    <!-- Modal de configuración Telegram -->
+    <div class="modal-overlay hidden" id="configModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <span>⚙️ Configurar Telegram</span>
+          <button class="modal-close" id="closeConfigModal">✕</button>
+        </div>
+        <div class="form-group">
+          <label>Token del Bot</label>
+          <input class="input-sm" id="telegramToken" placeholder="123456:ABC-DEF1234gh..." />
+        </div>
+        <div class="form-group">
+          <label>Chat ID</label>
+          <input class="input-sm" id="telegramChatId" placeholder="-1001234567890" />
+        </div>
+        <button id="saveConfigBtn" class="btn-search">💾 Guardar configuración</button>
+        <div id="configStatus" style="font-size:0.7rem;margin-top:0.5rem;color:var(--text-muted);"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom-nav">
+    <div class="nav-item active"><span class="nav-icon">📋</span>Registro</div>
+    <div class="nav-item"><span class="nav-icon">📊</span>Historial</div>
+    <div class="nav-item"><span class="nav-icon">📈</span>Stats</div>
+  </div>
+
+  <script>
+    (function() {
+      console.log('🚀 Iniciando Gestor BCP...');
+      
+      // ============ CONFIGURACIÓN ============
+      const MAX_DIM = 1200, MAX_DIM_TALL = 900, TIMEOUT_SEC = 30, JPEG_QUALITY = 0.9;
+      const BANCOS = {
+        'bcp': 'BCP', 'banco de credito': 'BCP', 'banco de crédito': 'BCP',
+        'interbank': 'Interbank', 'bbva': 'BBVA', 'continental': 'BBVA',
+        'scotiabank': 'Scotiabank', 'scotia': 'Scotiabank',
+        'banbif': 'BanBif', 'yape': 'Yape', 'plin': 'Plin', 'tunki': 'Tunki',
+        'banco de la nacion': 'Banco de la Nación', 'banco de la nación': 'Banco de la Nación',
+        'pichincha': 'Pichincha', 'falabella': 'Falabella',
+        'caja arequipa': 'Caja Arequipa', 'caja huancayo': 'Caja Huancayo',
+        'mibanco': 'MiBanco', 'mi banco': 'MiBanco'
+      };
+      const MESES_MAP = {
+        'enero':'01','febrero':'02','marzo':'03','abril':'04','mayo':'05','junio':'06',
+        'julio':'07','agosto':'08','setiembre':'09','septiembre':'09','octubre':'10',
+        'noviembre':'11','diciembre':'12','ene':'01','feb':'02','mar':'03','abr':'04',
+        'may':'05','jun':'06','jul':'07','ago':'08','set':'09','sep':'09','oct':'10',
+        'nov':'11','dic':'12'
+      };
+      const MESES_REGEX = '(' + Object.keys(MESES_MAP).join('|') + ')';
+
+      // ============ DOM ============
+      const $ = (id) => document.getElementById(id);
+      const previewBox = $('previewBox'), previewImage = $('previewImage'),
+        optimizedTag = $('optimizedTag'), scanningOverlay = $('scanningOverlay'),
+        scanningText = $('scanningText'), imgActions = $('imgActions'),
+        fileInput = $('fileInput'), cameraInput = $('cameraInput'),
+        btnRemove = $('btnRemove'), btnConfirm = $('btnConfirm'),
+        accordionHeader = $('accordionHeader'), accordionBody = $('accordionBody'),
+        pasteTextarea = $('pasteTextarea'), btnParseText = $('btnParseText'),
+        detectedDataCard = $('detectedDataCard'), dataGrid = $('dataGrid'),
+        detectionBadge = $('detectionBadge'),
+        classificationCard = $('classificationCard'), categoryBadge = $('categoryBadge'),
+        classGrid = $('classGrid'), classDetail = $('classDetail'),
+        toast = $('toast'), configBtn = $('configBtn'),
+        configModal = $('configModal'), closeConfigModal = $('closeConfigModal'),
+        telegramToken = $('telegramToken'), telegramChatId = $('telegramChatId'),
+        saveConfigBtn = $('saveConfigBtn'), configStatus = $('configStatus'),
+        confirmModal = $('confirmModal'), closeConfirmModal = $('closeConfirmModal'),
+        boletaTexto = $('boletaTexto'), copyBoletaBtn = $('copyBoletaBtn'),
+        sendTelegramBtn = $('sendTelegramBtn'), telegramStatus = $('telegramStatus');
+
+      let currentImageFile = null, currentImageUrl = null, scannedData = null,
+        classificationResult = null, operationsHistory = [],
+        isScanning = false, worker = null, currentBoleta = '';
+
+      const round2 = n => Math.round(n * 100) / 100;
+      const uid = () => Date.now().toString(36) + Math.random().toString(36).substr(2,9);
+
+      // ============ UTILIDADES ============
+      function calcComision(m) {
+        if (m <= 20) return { comision: 0.10, regla: 'fija_0.10' };
+        if (m <= 1000) return { comision: round2(m * 0.005), regla: 'variable_0.5pct' };
+        return { comision: round2(m * 0.001), regla: 'variable_0.1pct' };
+      }
+
+      function loadHistory() {
+        try { operationsHistory = JSON.parse(localStorage.getItem('bcpOps') || '[]'); } catch(e) { operationsHistory = []; }
+      }
+      function saveHistory() { localStorage.setItem('bcpOps', JSON.stringify(operationsHistory)); }
+
+      function getTelegramConfig() {
+        return {
+          token: localStorage.getItem('tg_token') || '',
+          chatId: localStorage.getItem('tg_chat_id') || ''
+        };
+      }
+      function saveTelegramConfig(token, chatId) {
+        localStorage.setItem('tg_token', token);
+        localStorage.setItem('tg_chat_id', chatId);
+      }
+
+      function showToast(msg, type='success') {
+        toast.textContent = msg;
+        toast.style.color = type==='error' ? 'var(--red)' : 'var(--green)';
+        toast.style.borderColor = type==='error' ? 'var(--red)' : 'var(--green)';
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 3000);
+      }
+
+      // ============ IMAGEN ============
+      function showImage(file) {
+        console.log('📷 Imagen seleccionada:', file.name);
+        currentImageFile = file;
+        if (currentImageUrl) URL.revokeObjectURL(currentImageUrl);
+        currentImageUrl = URL.createObjectURL(file);
+        previewImage.src = currentImageUrl;
+        previewBox.classList.add('visible');
+        imgActions.classList.add('visible');
+        optimizedTag.style.display = 'none';
+        detectedDataCard.classList.add('hidden');
+        classificationCard.classList.add('hidden');
+        startScan(file);
+      }
+
+      function removeImage() {
+        currentImageFile = null;
+        if (currentImageUrl) URL.revokeObjectURL(currentImageUrl);
+        previewImage.src = '';
+        previewBox.classList.remove('visible');
+        imgActions.classList.remove('visible');
+        optimizedTag.style.display = 'none';
+        detectedDataCard.classList.add('hidden');
+        classificationCard.classList.add('hidden');
+        scanningOverlay.classList.remove('active');
+      }
+
+      // ============ OCR ============
+      async function prepareImage(file) {
+        const bitmap = await createImageBitmap(file);
+        let { width, height } = bitmap;
+        const ratio = height / width;
+        if (ratio > 2.0) {
+          const s = MAX_DIM_TALL / height; width = Math.round(width * s); height = MAX_DIM_TALL;
+        } else if (Math.max(width, height) > MAX_DIM) {
+          const s = MAX_DIM / Math.max(width, height);
+          width = Math.round(width * s); height = Math.round(height * s);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d', { alpha: false });
+        ctx.filter = 'contrast(1.3) brightness(1.15) saturate(0)';
+        ctx.drawImage(bitmap, 0, 0, width, height);
+        ctx.filter = 'none'; bitmap.close();
+        return new Promise(res => canvas.toBlob(res, 'image/jpeg', JPEG_QUALITY));
+      }
+
+      async function getWorker() {
+        if (worker) return worker;
+        console.log('🔧 Inicializando Tesseract worker...');
+        scanningText.textContent = 'Cargando motor OCR...';
+        worker = await Tesseract.createWorker('spa+eng', 1, {
+          logger: m => {
+            if (m.status === 'recognizing text') scanningText.textContent = 'Reconociendo texto...';
+          }
+        });
+        await worker.setParameters({
+          tessedit_pageseg_mode: '6', tessjs_create_hocr: '0', tessjs_create_tsv: '0',
+          tessjs_create_box: '0', load_system_dawg: '0', load_freq_dawg: '0'
+        });
+        console.log('✅ Worker listo');
+        return worker;
+      }
+
+      async function recognizeWithTimeout(blob) {
+        const w = await getWorker();
+        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), TIMEOUT_SEC * 1000));
+        const res = await Promise.race([w.recognize(blob), timeout]);
+        return res.data.text;
+      }
+
+      // ============ POSTPROCESAMIENTO ============
+      function enhanceText(raw) {
+        let lines = raw.split('\n').map(l => l.trim());
+        const rules = [
+          ['Comisión', 'Gratis', 'Comisión Gratis'],
+          ['Desde', /^Cuenta Yape Soles/i, null],
+          [/^Número de operación$/i, /^\d{8,12}$/, null],
+          [/^Nro\.?$/i, /^\d{8,12}$/, 'Número de operación'],
+          [/^Operación$/i, /^\d{8,12}$/, null],
+          [/^[A-Z]{2}$/, /^[*\d]{1,3}\s+[*\d]{3,4}$/, null],
+          [/^[A-Z]{2}\s+[*\d]{1,3}$/, /^\d{3,4}$/, null],
+          [/^[A-Z]{1,2}$/, /^\d{5,8}$/, null]
+        ];
+        for (let i = 0; i < lines.length - 1; i++) {
+          for (const [a, b, rep] of rules) {
+            const ma = typeof a === 'string' ? lines[i] === a : a.test(lines[i]);
+            const mb = typeof b === 'string' ? lines[i + 1] === b : b.test(lines[i + 1]);
+            if (ma && mb) {
+              lines[i] = rep ? rep + ' ' + lines[i + 1] : lines[i] + ' ' + lines[i + 1];
+              lines.splice(i + 1, 1); break;
+            }
+          }
+        }
+        for (let i = 0; i < lines.length - 1; i++) {
+          if (/Desde Cuenta Yape Soles/i.test(lines[i]) && /^[X*_]{1,4}\s?\d{1,2}\??\d?\d?$/.test(lines[i + 1])) {
+            lines[i] += ' ' + lines[i + 1]; lines.splice(i + 1, 1); break;
+          }
+        }
+        return lines.map(l => l
+          .replace(/^5\/\s?(\d)/, 'S/ $1')
+          .replace(/[>|]/g, '').replace(/O\?/g, '02')
+          .replace(/Xx /g, 'XL ').replace(/\bhs\b/g, '**')
+          .replace(/XXXL/g, '****').replace(/50\?8/g, '6028')
+          .replace(/\bE\s+(\d{5,8})\b/, 'XL **7 $1')
+          .replace(/(\d{1,2}:\d{2})\s*PR\b/gi, '$1 PM')
+          .replace(/(\d{1,2}:\d{2})\s*P\.\s*R\./gi, '$1 PM')
+          .trim()
+        ).filter(Boolean).join('\n');
+      }
+
+      // ============ EXTRACCIÓN ============
+      function extractData(text) {
+        const d = {
+          monto: 'No detectado', montoNum: 0,
+          fecha: 'No detectada', hora: 'No detectada',
+          operacion: 'No detectada', telefono: 'No detectado',
+          bancoEmisor: 'No detectado', bancoReceptor: 'No detectado',
+          tipo: 'No detectado', raw: text
+        };
+        const mm = text.match(/S\s*\/?\s*\.?\s*([\d,]+\.\d{2})/i);
+        if (mm) { d.monto = `S/ ${mm[1].replace(/,/g, '')}`; d.montoNum = parseFloat(mm[1].replace(/,/g, '')) || 0; }
+        else {
+          const dm = text.match(/(\d{1,3}(?:,\d{3})*\.\d{2})/);
+          if (dm) { d.monto = `S/ ${dm[1].replace(/,/g, '')}`; d.montoNum = parseFloat(dm[1].replace(/,/g, '')) || 0; }
+        }
+        const fl = new RegExp(`(\\d{1,2})\\s+${MESES_REGEX}\\s+(\\d{2,4})`, 'i');
+        const fc = /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/;
+        let fm = text.match(fl) || text.match(fc);
+        if (fm && fm.length === 4 && fm[2] && isNaN(fm[2])) {
+          d.fecha = `${fm[1].padStart(2,'0')}/${MESES_MAP[fm[2].toLowerCase()]}/${fm[3]}`;
+        } else if (fm && fm.length === 4) {
+          d.fecha = `${fm[1].padStart(2,'0')}/${fm[2].padStart(2,'0')}/${fm[3]}`;
+        }
+        let timeMatch = text.match(/(\d{1,2}:\d{2}(?::\d{2})?)\s*(a\.?\s*m\.?|p\.?\s*m\.?|am|pm|pr)/i);
+        if (timeMatch) {
+          let rawMer = (timeMatch[2] || '').toLowerCase().replace(/[.\s]/g, '');
+          let meridiano = (rawMer === 'am' || rawMer === 'a') ? 'am' : (rawMer === 'pm' || rawMer === 'p' || rawMer === 'pr') ? 'pm' : null;
+          d.hora = meridiano ? `${timeMatch[1]} ${meridiano}` : timeMatch[1];
+        } else {
+          let hm = text.match(/(\d{1,2}:\d{2}(?::\d{2})?)/);
+          if (hm) {
+            let h = parseInt(hm[1].split(':')[0], 10);
+            d.hora = `${hm[1]} ${h >= 0 && h <= 11 ? 'am' : 'pm'}`;
+          }
+        }
+        const om = text.match(/(?:Número de operación|Operación|Nro\.?|Código)\s*[:\s#]*\s*(\d{8,12})/i) || text.match(/(\d{8,12})\s*$/m);
+        if (om) d.operacion = om[1];
+        const nameM = text.match(/(?:Enviado a|Yapeado a|Transferido a)\s+([^\n]+)/i);
+        if (nameM) d.telefono = nameM[1].trim();
+        else {
+          const am = text.match(/^([A-Z]{2,3})\s+([*\d]{1,3}[\s*]*[*\d]{1,4})/im);
+          if (am) d.telefono = am[0].replace(/\s+/g, ' ').trim();
+        }
+        const tl = text.toLowerCase();
+        for (const [key, name] of Object.entries(BANCOS)) {
+          if (tl.includes(key)) {
+            if (d.bancoEmisor === 'No detectado') d.bancoEmisor = name;
+            else if (d.bancoReceptor === 'No detectado' && d.bancoReceptor !== name) d.bancoReceptor = name;
+          }
+        }
+        if (/monto recibido|te yapearon|recibiste/i.test(text)) d.tipo = 'retiro';
+        else if (/monto enviado|yapear a celular|enviaste|pago yape a/i.test(text)) d.tipo = 'deposito';
+        else if (/servicio|movistar|sedapal|enel|tarjeta de crédito/i.test(text)) d.tipo = 'servicio';
+        return d;
+      }
+
+      // ============ CLASIFICACIÓN ============
+      function classifyTransaction(data, text) {
+        const t = text.toLowerCase();
+        let resultado = {
+          categoria: 'PENDIENTE_REVISIÓN',
+          tipoMovimiento: 'Variable',
+          confianza: 0.30,
+          evidencias: [],
+          reglasAplicadas: []
+        };
+        const hasYapearCelular = t.includes('yapear a celular');
+        const hasMontoEnviadoBCP = t.includes('monto enviado') && (t.includes('bcp') || t.includes('detalle de movimiento'));
+        if (hasYapearCelular && hasMontoEnviadoBCP) {
+          resultado.categoria = 'TRANSFERENCIA BCP A YAPE';
+          resultado.tipoMovimiento = 'EGRESO';
+          resultado.confianza = 0.93;
+        } else {
+          // resto de reglas simplificadas...
+          const hasCuentaAhorro = /de cuenta de ahorro/i.test(t);
+          const hasContextoBCP = t.includes('bcp') || t.includes('operación exitosa');
+          if (hasCuentaAhorro && t.includes('clasica soles')) {
+            resultado.categoria = 'RETIRO BCP'; resultado.tipoMovimiento = 'EGRESO'; resultado.confianza = 0.90;
+          } else if (hasContextoBCP && !hasCuentaAhorro && data.operacion !== 'No detectada') {
+            resultado.categoria = 'DEPÓSITO BCP'; resultado.tipoMovimiento = 'INGRESO'; resultado.confianza = 0.75;
+          } else if (/monto recibido|te yapearon/i.test(t)) {
+            resultado.categoria = 'RETIRO YAPE'; resultado.tipoMovimiento = 'EGRESO'; resultado.confianza = 0.85;
+          } else if (/monto enviado|pago yape a/i.test(t)) {
+            resultado.categoria = 'DEPÓSITO YAPE'; resultado.tipoMovimiento = 'INGRESO'; resultado.confianza = 0.80;
+          }
+        }
+        return resultado;
+      }
+
+      function calculateExtractionConfidence(data) {
+        let score = 0.15;
+        if (data.monto !== 'No detectado') score += 0.30;
+        if (data.operacion !== 'No detectada') score += 0.20;
+        if (data.fecha !== 'No detectada') score += 0.15;
+        if (data.bancoEmisor !== 'No detectado' || data.bancoReceptor !== 'No detectado') score += 0.15;
+        if (data.telefono !== 'No detectado') score += 0.05;
+        return Math.min(score, 0.85);
+      }
+
+      function fillDetectedData(data, extractionConf) {
+        dataGrid.innerHTML = `
+          <div class="data-item"><div class="data-label">Monto</div><div class="data-value" style="color:var(--green);">${data.monto}</div></div>
+          <div class="data-item"><div class="data-label">Operación</div><div class="data-value">${data.operacion}</div></div>
+          <div class="data-item"><div class="data-label">Fecha</div><div class="data-value">${data.fecha}</div></div>
+          <div class="data-item"><div class="data-label">Hora</div><div class="data-value">${data.hora}</div></div>
+          <div class="data-item"><div class="data-label">Alias</div><div class="data-value">${data.telefono}</div></div>
+          <div class="data-item"><div class="data-label">Ruta</div><div class="data-value">${data.bancoEmisor} → ${data.bancoReceptor}</div></div>
+        `;
+        detectionBadge.textContent = extractionConf >= 0.85 ? 'ALTA' : extractionConf >= 0.55 ? 'MEDIA' : 'REVISAR';
+        detectionBadge.className = 'badge ' + (extractionConf >= 0.85 ? 'badge-green' : extractionConf >= 0.55 ? 'badge-yellow' : 'badge-purple');
+        detectedDataCard.classList.remove('hidden');
+        if (data.bancoEmisor !== 'No detectado') $('emisorBanco').value = data.bancoEmisor;
+        if (data.bancoReceptor !== 'No detectado') $('receptorBanco').value = data.bancoReceptor;
+      }
+
+      function fillClassification(result, data, extractionConf) {
+        const catColors = {
+          'TRANSFERENCIA BCP A YAPE': '#3B82F6',
+          'RETIRO BCP': '#EF4444',
+          'DEPÓSITO BCP': '#10B981',
+          'RETIRO YAPE': '#F59E0B',
+          'DEPÓSITO YAPE': '#8B5CF6',
+          'PENDIENTE_REVISIÓN': '#6B7280'
+        };
+        categoryBadge.textContent = result.categoria;
+        categoryBadge.style.background = catColors[result.categoria] || '#6B7280';
+        categoryBadge.style.color = 'white';
+        const tipoMovColor = result.tipoMovimiento === 'INGRESO' ? 'var(--green)' : result.tipoMovimiento === 'EGRESO' ? 'var(--red)' : 'var(--yellow)';
+        classGrid.innerHTML = `
+          <div class="data-item"><div class="data-label">Categoría</div><div class="data-value">${result.categoria}</div></div>
+          <div class="data-item"><div class="data-label">Tipo Mov.</div><div class="data-value" style="color:${tipoMovColor};">${result.tipoMovimiento}</div></div>
+          <div class="data-item"><div class="data-label">Confianza Clasif.</div><div class="data-value">${Math.round(result.confianza * 100)}%</div></div>
+          <div class="data-item"><div class="data-label">Confianza Extrac.</div><div class="data-value">${Math.round(extractionConf * 100)}%</div></div>
+        `;
+        classificationCard.classList.remove('hidden');
+      }
+
+      // ============ BOLETA Y TELEGRAM ============
+      function generarBoleta(data, classification, tipo, empresa) {
+        const monto = data.monto.replace('S/ ', '').trim();
+        const entidad = data.bancoReceptor !== 'No detectado' ? data.bancoReceptor : data.bancoEmisor !== 'No detectado' ? data.bancoEmisor : 'ENTIDAD';
+        const opNum = data.operacion !== 'No detectada' ? data.operacion : 'S/N';
+        const tieneTarjetaCredito = data.raw.toLowerCase().includes('tarjeta de crédito') && data.raw.toLowerCase().includes('bcp');
+        if (tipo === 'deposito') return `COMISIÓN POR DEPÓSITO EN ${entidad.toUpperCase()} DE S/ ${monto}\n#${opNum}`;
+        if (tipo === 'retiro') return `COMISIÓN POR RETIRO EN ${entidad.toUpperCase()} DE S/ ${monto}\n#${opNum}`;
+        if (tipo === 'servicio') {
+          const emp = empresa || entidad;
+          if (tieneTarjetaCredito) return `COMISIÓN POR PAGO DE SERVICIOS A ${emp.toUpperCase()} CON TARJETA DE CRÉDITO BCP DE S/ ${monto}\n#${opNum}`;
+          return `COMISIÓN POR PAGO DE SERVICIOS A ${emp.toUpperCase()} DE S/ ${monto}\n#${opNum}`;
+        }
+        return `OPERACIÓN EN ${entidad.toUpperCase()} DE S/ ${monto}\n#${opNum}`;
+      }
+
+      async function sendToTelegram(boleta, imageFile) {
+        const config = getTelegramConfig();
+        if (!config.token || !config.chatId) throw new Error('Token o Chat ID no configurados');
+        const formData = new FormData();
+        formData.append('chat_id', config.chatId);
+        formData.append('caption', boleta);
+        formData.append('photo', imageFile, 'comprobante.jpg');
+        const url = `https://api.telegram.org/bot${config.token}/sendPhoto`;
+        const response = await fetch(url, { method: 'POST', body: formData });
+        const result = await response.json();
+        if (!result.ok) throw new Error(result.description || 'Error al enviar a Telegram');
+        return result;
+      }
+
+      // ============ FLUJO PRINCIPAL ============
+      async function startScan(file) {
+        if (isScanning) return;
+        isScanning = true;
+        scanningOverlay.classList.add('active');
+        scanningText.textContent = 'Optimizando imagen...';
+        optimizedTag.style.display = 'none';
+        try {
+          console.log('🔍 Iniciando OCR...');
+          const blob = await prepareImage(file);
+          optimizedTag.style.display = 'block';
+          scanningText.textContent = 'Reconociendo texto...';
+          const raw = await recognizeWithTimeout(blob);
+          console.log('📄 Texto crudo:', raw.substring(0, 100) + '...');
+          const cleaned = enhanceText(raw);
+          const data = extractData(cleaned);
+          const classification = classifyTransaction(data, cleaned);
+          const extractionConf = calculateExtractionConfidence(data);
+          scannedData = data;
+          classificationResult = classification;
+          fillDetectedData(data, extractionConf);
+          fillClassification(classification, data, extractionConf);
+          pasteTextarea.value = raw;
+          showToast('✅ Escaneo completado');
+          console.log('✅ OCR finalizado');
+        } catch (e) {
+          console.error('❌ Error en OCR:', e);
+          showToast('❌ Error: ' + e.message, 'error');
+        } finally {
+          scanningOverlay.classList.remove('active');
+          isScanning = false;
+        }
+      }
+
+      function confirmarYEnviar() {
+        if (!scannedData || !classificationResult) {
+          showToast('Primero escanea un comprobante', 'error');
+          return;
+        }
+        const tipoSeleccionado = document.querySelector('#typeChips .chip.active')?.dataset?.type || 'auto';
+        const tipo = tipoSeleccionado === 'auto' ? scannedData.tipo : tipoSeleccionado;
+        const empresa = $('receptorNombre').value || $('emisorNombre').value || '';
+        currentBoleta = generarBoleta(scannedData, classificationResult, tipo, empresa);
+        boletaTexto.textContent = currentBoleta;
+        confirmModal.classList.remove('hidden');
+      }
+
+      function guardarOperacion() {
+        if (!scannedData || !classificationResult) return;
+        const tipoSeleccionado = document.querySelector('#typeChips .chip.active')?.dataset?.type || 'auto';
+        const etiquetaSeleccionada = document.querySelector('#tagChips .chip.active')?.dataset?.tag || 'pendiente';
+        const op = {
+          id: uid(), createdAt: new Date().toISOString(),
+          monto: scannedData.montoNum,
+          comision: calcComision(scannedData.montoNum).comision,
+          comisionRegla: calcComision(scannedData.montoNum).regla,
+          fecha: scannedData.fecha, hora: scannedData.hora,
+          opNum: scannedData.operacion, alias: scannedData.telefono,
+          bancoEmisor: $('emisorBanco').value || scannedData.bancoEmisor,
+          bancoReceptor: $('receptorBanco').value || scannedData.bancoReceptor,
+          emisorNombre: $('emisorNombre').value, emisorDni: $('emisorDni').value,
+          receptorNombre: $('receptorNombre').value, receptorDni: $('receptorDni').value,
+          tipo: tipoSeleccionado === 'auto' ? scannedData.tipo : tipoSeleccionado,
+          etiqueta: etiquetaSeleccionada,
+          categoriaFinal: classificationResult.categoria,
+          tipoMovimiento: classificationResult.tipoMovimiento,
+          confianzaClasif: classificationResult.confianza,
+          textoOriginal: scannedData.raw,
+          boleta: currentBoleta
+        };
+        operationsHistory.push(op);
+        saveHistory();
+      }
+
+      // ============ EVENTOS ============
+      fileInput.addEventListener('change', (e) => {
+        const f = e.target.files[0];
+        if (f && f.type.startsWith('image/')) {
+          console.log('📁 Archivo seleccionado de galería');
+          showImage(f);
+        }
+        fileInput.value = '';
+      });
+
+      cameraInput.addEventListener('change', (e) => {
+        const f = e.target.files[0];
+        if (f && f.type.startsWith('image/')) {
+          console.log('📸 Foto tomada');
+          showImage(f);
+        }
+        cameraInput.value = '';
+      });
+
+      btnRemove.addEventListener('click', removeImage);
+      btnConfirm.addEventListener('click', confirmarYEnviar);
+
+      btnParseText.addEventListener('click', () => {
+        const t = pasteTextarea.value.trim();
+        if (!t) { showToast('Pega o escribe un texto', 'error'); return; }
+        const cleaned = enhanceText(t);
+        const data = extractData(cleaned);
+        const classification = classifyTransaction(data, cleaned);
+        const extractionConf = calculateExtractionConfidence(data);
+        scannedData = data;
+        classificationResult = classification;
+        fillDetectedData(data, extractionConf);
+        fillClassification(classification, data, extractionConf);
+        showToast('✅ Texto analizado');
+      });
+
+      accordionHeader.addEventListener('click', () => {
+        accordionBody.classList.toggle('open');
+        accordionHeader.querySelector('span').textContent = accordionBody.classList.contains('open') ? '▲' : '▼';
+      });
+
+      document.querySelectorAll('#typeChips .chip').forEach(ch => {
+        ch.addEventListener('click', function() {
+          document.querySelectorAll('#typeChips .chip').forEach(c => c.classList.remove('active'));
+          this.classList.add('active');
+        });
+      });
+
+      document.querySelectorAll('#tagChips .chip').forEach(ch => {
+        ch.addEventListener('click', function() {
+          document.querySelectorAll('#tagChips .chip').forEach(c => c.classList.remove('active'));
+          this.classList.add('active');
+        });
+      });
+
+      // Modales
+      closeConfirmModal.addEventListener('click', () => confirmModal.classList.add('hidden'));
+      copyBoletaBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(currentBoleta).then(() => showToast('📋 Boleta copiada'));
+      });
+      sendTelegramBtn.addEventListener('click', async () => {
+        if (!currentImageFile) { showToast('No hay imagen', 'error'); return; }
+        telegramStatus.textContent = 'Enviando...';
+        try {
+          await sendToTelegram(currentBoleta, currentImageFile);
+          telegramStatus.textContent = '✅ Enviado a Telegram';
+          showToast('✅ Enviado a Telegram');
+          guardarOperacion();
+        } catch (e) {
+          telegramStatus.textContent = '❌ Error: ' + e.message;
+          showToast('❌ ' + e.message, 'error');
+        }
+      });
+
+      configBtn.addEventListener('click', () => {
+        const config = getTelegramConfig();
+        telegramToken.value = config.token;
+        telegramChatId.value = config.chatId;
+        configModal.classList.remove('hidden');
+      });
+      closeConfigModal.addEventListener('click', () => configModal.classList.add('hidden'));
+      saveConfigBtn.addEventListener('click', () => {
+        saveTelegramConfig(telegramToken.value.trim(), telegramChatId.value.trim());
+        configStatus.textContent = '✅ Configuración guardada';
+        showToast('⚙️ Configuración guardada');
+      });
+
+      // Precarga del worker (opcional)
+      getWorker().then(() => console.log('Worker precargado')).catch(e => console.warn('Precarga fallida:', e));
+      loadHistory();
+      console.log('✅ Sistema listo');
+    })();
+  </script>
+</body>
+</html>
